@@ -81,11 +81,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Installs Node.js (latest LTS) and caches the npm download folder between runs.
+      # Installs Node.js and caches the npm download folder between runs.
+      # Pinned to Node 22 instead of "lts/*": the latest LTS (Node 26) makes
+      # "npx playwright install" with Playwright 1.55.1 hang forever after the
+      # download reaches 100% (zip extraction never finishes).
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: 22
           cache: npm
 
       # Installs exact dependency versions from package-lock.json (clean, reproducible install).
