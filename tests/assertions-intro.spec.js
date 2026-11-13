@@ -50,7 +50,7 @@ test.describe("Test Group", () => {
 
   });
 
-  test("Veirfy text of the elment", async ({ page }) => {
+  test("Verify text of the element", async ({ page }) => {
     
     let headerElement = page.locator("span.h1y");
 
