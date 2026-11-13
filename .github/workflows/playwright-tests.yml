@@ -57,8 +57,11 @@ jobs:
   test:
     # Job name shown in the Actions UI.
     name: Run Playwright tests
-    # Virtual machine type: latest Ubuntu Linux runner hosted by GitHub.
-    runs-on: ubuntu-latest
+    # Virtual machine type: Ubuntu 24.04 Linux runner hosted by GitHub.
+    # Pinned instead of "ubuntu-latest": ubuntu-latest now points to 26.04, which
+    # Playwright 1.55.1 does not support ("Playwright does not support chromium on ubuntu26.04").
+    # Move to a newer image only after upgrading @playwright/test to a version that supports it.
+    runs-on: ubuntu-24.04
     # Hard limit: the job is cancelled if it runs longer than 30 minutes.
     timeout-minutes: 30
 
