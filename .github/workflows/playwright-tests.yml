@@ -79,14 +79,14 @@ jobs:
     steps:
       # Downloads the repository code onto the runner.
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Installs Node.js and caches the npm download folder between runs.
       # Pinned to Node 22 instead of "lts/*": the latest LTS (Node 26) makes
       # "npx playwright install" with Playwright 1.55.1 hang forever after the
       # download reaches 100% (zip extraction never finishes).
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -108,7 +108,7 @@ jobs:
       # so a new Playwright version always gets fresh browsers.
       - name: Cache Playwright browsers
         id: pw-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
@@ -149,7 +149,7 @@ jobs:
       # To view it: download, unzip, then run "npx playwright show-report <folder>".
       - name: Upload HTML report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: playwright-report-${{ github.run_number }}
           path: playwright-report/
@@ -159,7 +159,7 @@ jobs:
       # Open a trace with "npx playwright show-trace <trace.zip>" or at trace.playwright.dev.
       - name: Upload traces and screenshots
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test-results-${{ github.run_number }}
           path: test-results/
