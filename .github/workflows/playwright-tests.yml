@@ -1,0 +1,160 @@
+# Name shown in the GitHub "Actions" tab and in status checks on PRs.
+name: Playwright Tests
+
+# ---------------------------------------------------------------------------
+# TRIGGERS: when this workflow runs
+# ---------------------------------------------------------------------------
+on:
+  # 1) Runs on every push to main. Merging a PR into main also creates a push,
+  #    so merged pull requests are covered by this trigger.
+  push:
+    branches: [main]
+    # Skip the run if only Markdown files (e.g. README) changed.
+    paths-ignore:
+      - '**.md'
+
+  # Runs the tests on PRs targeting main, before they are merged.
+  # The result appears as a check on the PR page.
+  pull_request:
+    branches: [main]
+
+  # 2) Every day at 12:00 PM EST. Cron runs in UTC: 12:00 EST = 17:00 UTC.
+  #    Note: during daylight saving time (EDT, March-November) this is 1:00 PM local.
+  #    Cron format: minute hour day-of-month month day-of-week
+  #    Scheduled runs only work from the default branch and may start a few minutes late.
+  schedule:
+    - cron: '0 17 * * *'
+
+  # 3) Manual trigger: Actions tab -> "Playwright Tests" -> "Run workflow" button.
+  workflow_dispatch:
+    # Optional fields shown in the "Run workflow" form.
+    inputs:
+      # Filters tests by title or tag, passed to Playwright as --grep.
+      grep:
+        description: 'Only run matching tests (e.g. @smoke or "Drag and Drop"). Empty = all tests'
+        required: false
+        default: ''
+      # Shows a checkbox; when checked, tests run with a real (virtual) browser window.
+      headed:
+        description: 'Run the browser in headed mode (via xvfb)'
+        type: boolean
+        default: false
+
+# If a new run starts for the same branch, cancel the older one.
+# This saves runner minutes when several commits are pushed quickly.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Give the workflow's GITHUB_TOKEN the least access it needs: read-only repo access.
+permissions:
+  contents: read
+
+# ---------------------------------------------------------------------------
+# JOBS: what the workflow does
+# ---------------------------------------------------------------------------
+jobs:
+  test:
+    # Job name shown in the Actions UI.
+    name: Run Playwright tests
+    # Virtual machine type: latest Ubuntu Linux runner hosted by GitHub.
+    runs-on: ubuntu-latest
+    # Hard limit: the job is cancelled if it runs longer than 30 minutes.
+    timeout-minutes: 30
+
+    # Environment variables available to every step in this job.
+    env:
+      # Tells Playwright it is running in CI (enables forbidOnly in playwright.config.js).
+      CI: true
+      # Stops the HTML reporter from starting a local server and blocking the job.
+      PLAYWRIGHT_HTML_OPEN: never
+      # Credentials read from repo secrets (Settings -> Secrets and variables -> Actions).
+      # GitHub masks these values as *** in the logs.
+      PRACTICE_USERNAME: ${{ secrets.PRACTICE_USERNAME }}
+      PRACTICE_PASSWORD: ${{ secrets.PRACTICE_PASSWORD }}
+
+    steps:
+      # Downloads the repository code onto the runner.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Installs Node.js (latest LTS) and caches the npm download folder between runs.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      # Installs exact dependency versions from package-lock.json (clean, reproducible install).
+      - name: Install dependencies
+        run: npm ci
+
+      # Prints a yellow warning in the run summary if the secrets are missing,
+      # instead of letting the auth tests pass silently with "undefined" credentials.
+      - name: Check required secrets
+        run: |
+          if [ -z "$PRACTICE_USERNAME" ] || [ -z "$PRACTICE_PASSWORD" ]; then
+            echo "::warning::PRACTICE_USERNAME / PRACTICE_PASSWORD secrets are not set. Basic Auth tests will not be meaningful."
+          fi
+
+      # Restores downloaded browsers from a previous run.
+      # The cache key changes when package-lock.json changes (e.g. Playwright upgrade),
+      # so a new Playwright version always gets fresh browsers.
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      # Cache miss: download Chromium and install the Linux libraries it needs.
+      # Only Chromium is installed because it is the only project in playwright.config.js.
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      # Cache hit: browsers are already restored, but the OS libraries are not cached,
+      # so install only the system dependencies.
+      - name: Install Playwright system dependencies
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      # Runs the test suite.
+      # Inputs are passed through env variables (not inserted directly into the script)
+      # to prevent shell injection from the manual-trigger form.
+      # On push/schedule runs the inputs are empty, so all tests run headless.
+      - name: Run Playwright tests
+        env:
+          GREP: ${{ inputs.grep }}
+          HEADED: ${{ inputs.headed }}
+        run: |
+          ARGS=()
+          # Add --grep only when a filter was entered.
+          if [ -n "$GREP" ]; then ARGS+=(--grep "$GREP"); fi
+          if [ "$HEADED" = "true" ]; then
+            # Linux runners have no screen; xvfb-run provides a virtual display.
+            xvfb-run --auto-servernum npx playwright test --headed "${ARGS[@]}"
+          else
+            npx playwright test "${ARGS[@]}"
+          fi
+
+      # Uploads the HTML report so it can be downloaded from the run's "Artifacts" section.
+      # Runs whether tests passed or failed, but not if the run was cancelled.
+      # To view it: download, unzip, then run "npx playwright show-report <folder>".
+      - name: Upload HTML report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_number }}
+          path: playwright-report/
+          retention-days: 14
+
+      # Only when something failed: uploads traces, screenshots and videos for debugging.
+      # Open a trace with "npx playwright show-trace <trace.zip>" or at trace.playwright.dev.
+      - name: Upload traces and screenshots
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ github.run_number }}
+          path: test-results/
+          retention-days: 7
